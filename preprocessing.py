@@ -9,6 +9,7 @@ from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
 import re
 from bs4 import BeautifulSoup #to remove HTML tags
+from collections import defaultdict
 
 lemmatizer = WordNetLemmatizer()
 stop_list = stopwords.words('english')
@@ -37,8 +38,6 @@ def parseDocs(filename):
         f.close()
     
     return docs
-
-
 
 
 def tokenize_and_clean(docs):
@@ -83,7 +82,6 @@ def tokenize_and_clean(docs):
     return tokens
 
 
-
 def lemmatize(doc_tokens):
     """This function lemmatizes texts with NLTK WordNetLemmatizer
 
@@ -103,4 +101,45 @@ def lemmatize(doc_tokens):
         
     return doc_lemmas
 
+
+def read_cran_relevancy(path, relevancy_threshold=3):
+    """ Loads query relevancy information from the cran dataset.
+
+    Parameters
+    ----------
+    path : string
+        path to the cranqrel file containing space-separated columns:
+            query_id relevant_document_id relevant_document_number
+
+    relevancy_threshold : int
+        relevant_document_number column values are in 5 classes,
+        1 - most important, 5 - no relevance
+        this argument defines up to which relevancy the queries are paired
+    
+    Returns
+    -------
+    query_results : {qid: list of results sorted by relevancy, then by document id} 
+    """
+
+    # TODO: Make some sanity check.
+    # Here, indexes should correspond, since
+    #  td_docs, sorted_vocab = create_term_doc_matrix(docs)
+    #  td_queries = create_term_doc_matrix_queries(queries, sorted_vocab)
+    # so queries are indexed the same way as docs.
+    # In addition, indexes from create_term_doc_matrix should correpond to
+    # indexes from cran.all.1400, since documents are indexed one-by-one.
+
+    query_results = defaultdict(list)
+
+    with open(path) as f:
+        for line in f.readlines():
+            qid, docid, relevancy = tuple(line.split())
+            qid, docid, relevancy = int(qid), int(docid), int(relevancy)
+            if relevancy <= relevancy_threshold:
+                query_results[qid].append((docid, relevancy))
+    
+    for k, v in query_results.items():
+        query_results[k] = [docid for (docid, relevancy) in sorted(v, key=lambda x: x[1])]
+    
+    return dict(query_results)
 
