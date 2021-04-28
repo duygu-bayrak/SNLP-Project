@@ -59,6 +59,42 @@ def validate(**params):
     return results
 
 
+def preprocess(docs, preprocessings):
+    for fnt in preprocessings:
+        docs = fnt(docs)
+    return docs
+
+
+def embed(qids, queries, **params):
+    if qids is not None:
+        queries = [queries[i] for i in qids]
+    
+    # Baseline case
+    if "sorted_vocab" in params:
+        # TODO: add baseline further processing options
+        queries = create_term_doc_matrix_queries(queries, params.get("sorted_vocab"))
+        if "idf_vector" in params:
+            queries = queries * params.get("idf_vector")
+        if "dimred_transform" in params:
+            queries = queries.T.dot(params.get("dimred_transform")).T
+        return queries
+
+    # Embedding case
+    embedding = params.get("embedding")
+    if "infer_vector" in dir(embedding):
+        docs_data = [embedding.infer_vector(doc) for doc in queries]
+    else:
+        docs_data = []
+        for doc in queries:
+            vecs = []
+            for w in doc:
+                if w in embedding.wv:
+                    vecs.append(embedding.wv[w])
+            docs_data.append(np.mean(np.array(vecs), axis=0))
+        # docs_data = [np.mean(np.array([embedding.wv[w] for w in doc]), axis=0) for doc in queries]
+    return np.array(docs_data).T
+
+
 # Retrieval Metrics,
 # patched version from https://github.com/lgalke/vec4ir/blob/master/vec4ir/rank_metrics.py
 
@@ -158,32 +194,3 @@ def mean_average_precision(rs):
         Mean average precision
     """
     return np.mean([average_precision(r) for r in rs])
-
-
-def preprocess(docs, preprocessings):
-    for fnt in preprocessings:
-        docs = fnt(docs)
-    return docs
-
-def embed(qids, queries, **params):
-    if qids is not None:
-        queries = [queries[i] for i in qids]
-    
-    # Baseline case
-    if "sorted_vocab" in params:
-        # TODO: add baseline further processing options
-        queries = create_term_doc_matrix_queries(queries, params.get("sorted_vocab"))
-        if "idf_vector" in params:
-            queries = queries * params.get("idf_vector")
-        if "dimred_transform" in params:
-            queries = queries.T.dot(params.get("dimred_transform")).T
-        return queries
-
-    # Embedding case
-    embedding = params.get("embedding")
-    # TODO: Decide, what to do with out-of-vocabary with word2vec
-    # if isinstance(embedding, Word2Vec):
-    #     docs_data = [np.mean(np.array([embedding.wv[w] for w in doc]), axis=0) for doc in queries]
-    # else:
-    docs_data = [embedding.infer_vector(doc) for doc in queries]
-    return np.array(docs_data).T
