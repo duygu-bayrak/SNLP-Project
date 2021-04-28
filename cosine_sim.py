@@ -43,8 +43,12 @@ def get_k_relevant(k, query, D):
       
     cosine_sims = []
     
-    for i, d in enumerate(D):
-        cosine_sims.append((cosine_sim(query, d), i))
+    if isinstance(D, np.ndarray):
+        for i in range(D.shape[1]):
+            cosine_sims.append((cosine_sim(query, D[:,i]), i))
+    else:
+        for i, d in enumerate(D):
+            cosine_sims.append((cosine_sim(query, d), i))
         
     ranked_sims = sorted(cosine_sims, key=lambda x: x[0], reverse=True)
     
