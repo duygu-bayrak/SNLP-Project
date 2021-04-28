@@ -43,11 +43,18 @@ def validate(**params):
     for qid in qids_test:
         q, _ = embed([qid], queries, **query_params)
         q = q[:,0]
-        q_pred = [x[1] for x in get_k_relevant(k, q, docs_data)]
-        q_true = true_results[qid]
-        rs.append([int(x in q_true) for x in q_pred])
+        q_retrived = [x[1] for x in get_k_relevant(k, q, docs_data)]
+        q_relevant = true_results[qid]
+        rs.append([int(x in q_relevant) for x in q_retrived])
 
+    p_score = np.mean([precision(r) for r in rs])
+    r_score = np.mean([recall(r, len(q_relevant)) for r in rs])
+    results["precision (mean)"] = 100.0 * p_score
+    results["recall (mean)"] = 100.0 * r_score
+    results["F1 (mean)"] = 100.0 * f1_score(p_score, r_score)
     results["mAP"] = 100.0 * mean_average_precision(rs)
+    results["MRR"] = 100.0 * mean_reciprocal_rank(rs)
+    
     return results
 
 
@@ -143,6 +150,11 @@ def precision(r):
 def recall(r, n_relevant):
     return np.count_nonzero(r) / n_relevant
 
+def f1_score(precision, recall):
+    if precision == 0 and recall == 0:
+        return 0
+    return 2 * precision * recall / (precision + recall)
+
 def precision_at_k(r, k):
     """Score is precision @ k
 
@@ -229,3 +241,29 @@ def mean_average_precision(rs):
         Mean average precision
     """
     return np.mean([average_precision(r) for r in rs])
+
+def mean_reciprocal_rank(rs):
+    """Score is reciprocal of the rank of the first relevant item
+
+    First element is 'rank 1'.  Relevance is binary (nonzero is relevant).
+
+    Example from http://en.wikipedia.org/wiki/Mean_reciprocal_rank
+    >>> rs = [[0, 0, 1], [0, 1, 0], [1, 0, 0]]
+    >>> mean_reciprocal_rank(rs)
+    0.61111111111111105
+    >>> rs = np.array([[0, 0, 0], [0, 1, 0], [1, 0, 0]])
+    >>> mean_reciprocal_rank(rs)
+    0.5
+    >>> rs = [[0, 0, 0, 1], [1, 0, 0], [1, 0, 0]]
+    >>> mean_reciprocal_rank(rs)
+    0.75
+
+    Args:
+        rs: Iterator of relevance scores (list or numpy) in rank order
+            (first element is the first item)
+
+    Returns:
+        Mean reciprocal rank
+    """
+    rs = (np.asarray(r).nonzero()[0] for r in rs)
+    return np.mean([1. / (r[0] + 1) if r.size else 0. for r in rs])
