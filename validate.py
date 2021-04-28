@@ -28,29 +28,21 @@ def validate(**params):
 
     # Validate
     # Baseline case
-    if params.get("embedding") is None:
-        docs_data, sorted_vocab = create_term_doc_matrix(docs)
-        query_params = {"sorted_vocab": sorted_vocab,}
-
-        if params.get("use_tfidf"):
-            docs_data, idf_vector = tf_idf(docs_data)
-            query_params["idf_vector"] = idf_vector
-
-        if params.get("use_lsi"):
-            docs_data, dimred_transform = lsi(docs_data, params.get("d"))
-            query_params["dimred_transform"] = dimred_transform
+    if "embedding" not in params or params.get("embedding") is None:
+        docs_data, query_params = embed(None, docs, **params)
         
     # Embedding case
     else:
-        docs_data = embed(None, docs, embedding=params.get("embedding"))
-        query_params = {"embedding": params.get("embedding"),}
+        docs_data, query_params = embed(None, docs, **params)
+        query_params["embedding"] = params.get("embedding")
 
     # Calculate scores
     results = {}
     rs = []
     k = params.get("k")
     for qid in qids_test:
-        q = embed([qid], queries, **query_params)[:,0]
+        q, _ = embed([qid], queries, **query_params)
+        q = q[:,0]
         q_pred = [x[1] for x in get_k_relevant(k, q, docs_data)]
         q_true = true_results[qid]
         rs.append([int(x in q_true) for x in q_pred])
@@ -65,33 +57,76 @@ def preprocess(docs, preprocessings):
     return docs
 
 
-def embed(qids, queries, **params):
-    if qids is not None:
-        queries = [queries[i] for i in qids]
-    
-    # Baseline case
-    if "sorted_vocab" in params:
-        # TODO: add baseline further processing options
-        queries = create_term_doc_matrix_queries(queries, params.get("sorted_vocab"))
-        if "idf_vector" in params:
-            queries = queries * params.get("idf_vector")
-        if "dimred_transform" in params:
-            queries = queries.T.dot(params.get("dimred_transform")).T
-        return queries
+def embed(qids, X, **params):
+    """ Overloaded function!
+        Performs embedding for both reference documents and queries.
+        ------
+        Input:
+            qids: list of ints
+                Query ids correspoding to columns in X to process
+            X:  list of strings or 
+                Corresponds to list of lemmas.
+        ------
+        Output:
+            Y: numpy array of shape (m,n)
+                m is the vector embedding size
+                n is number of documents to be retrieved
+            additional_data: dict
+                Dictionary with additional data from reference documents first case.
+    """
 
-    # Embedding case
-    embedding = params.get("embedding")
+    # (A) Documents first case
+    if qids is None:
+        additional_data = {}
+        
+        # Embedding case
+        if "embedding" in params and params.get("embedding") is not None:
+            X = w2v_embed(X, params.get("embedding"))
+        # Baseline case
+        else:
+            X, sorted_vocab = create_term_doc_matrix(X)
+            additional_data = {"sorted_vocab": sorted_vocab,}
+
+        # Apply optional math processing
+        if "use_tfidf" in params and params.get("use_tfidf"):
+            X, idf_vector = tf_idf(X)
+            additional_data["idf_vector"] = idf_vector
+        if "use_lsi" in params and params.get("use_lsi"):
+            X, dimred_transform = lsi(X, params.get("d"))
+            additional_data["dimred_transform"] = dimred_transform
+    
+        return X, additional_data
+
+    # (B) Queries other cases
+    X = [X[i] for i in qids]
+
+    # Baseline case (only queries)
+    if "sorted_vocab" in params:
+        X = create_term_doc_matrix_queries(X, params.get("sorted_vocab"))
+    # Embedding case (any documents)    
+    else:
+        X = w2v_embed(X, params.get("embedding"))
+
+    # Apply optional math processing
+    if "idf_vector" in params:
+        X = X * params.get("idf_vector")
+    if "dimred_transform" in params:
+        X = X.T.dot(params.get("dimred_transform")).T
+
+    return X, {}
+
+
+def w2v_embed(X, embedding):
     if "infer_vector" in dir(embedding):
-        docs_data = [embedding.infer_vector(doc) for doc in queries]
+        docs_data = [embedding.infer_vector(doc) for doc in X]
     else:
         docs_data = []
-        for doc in queries:
+        for doc in X:
             vecs = []
             for w in doc:
-                if w in embedding.wv:
+                if w in embedding.wv:  # skip, if OOV
                     vecs.append(embedding.wv[w])
             docs_data.append(np.mean(np.array(vecs), axis=0))
-        # docs_data = [np.mean(np.array([embedding.wv[w] for w in doc]), axis=0) for doc in queries]
     return np.array(docs_data).T
 
 
