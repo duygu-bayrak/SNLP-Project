@@ -41,22 +41,31 @@ def validate(**params):
 
     # Calculate scores
     results = {}
-    rs = []
+    rs_ranked = []
+    rs_unranked = []
+    n_relevant = []
     k = params.get("k")
     for qid in qids_test:
         q, _ = embed([qid], queries, embedding, **query_params)
         q = q[:,0]
-        q_retrived = [x[1] for x in get_k_relevant(k, q, docs_data)]
+        q_retrived = [x[1] for x in get_k_relevant(0, q, docs_data)]
         q_relevant = true_results[qid]
-        rs.append([int(x in q_relevant) for x in q_retrived])
+        rs_unranked.append([int(x in q_relevant) for x in q_retrived])
+        rs_ranked.append([int(x in q_relevant) for x in q_retrived[:k]])
+        n_relevant.append(len(true_results[qid]))
 
-    p_score = np.mean([precision(r) for r in rs])
-    r_score = np.mean([recall(r, len(q_relevant)) for r in rs])
-    results["precision (mean)"] = 100.0 * p_score
-    results["recall (mean)"] = 100.0 * r_score
-    results["F1 (mean)"] = 100.0 * f1_score(p_score, r_score)
-    results["mAP"] = 100.0 * mean_average_precision(rs)
-    results["MRR"] = 100.0 * mean_reciprocal_rank(rs)
+    precision_unranked = np.mean([precision(r) for r in rs_unranked])
+    recall_unranked = np.mean([recall(r, n) for r, n in zip(rs_unranked, n_relevant)])
+    results["precision"] = 100.0 * precision_unranked
+    results["recall"] = 100.0 * recall_unranked
+    results["F1"] = 100.0 * f1_score(precision_unranked, recall_unranked)
+
+    precision_ranked = np.mean([precision(r) for r in rs_ranked])
+    recall_ranked = np.mean([recall(r, min(k, n)) for r, n in zip(rs_ranked, n_relevant)])
+    results["precision@{}".format(k)] = 100.0 * precision_ranked
+    results["recall@{}".format(k)] = 100.0 * recall_ranked
+    results["mAP"] = 100.0 * mean_average_precision(rs_ranked)
+    results["MRR"] = 100.0 * mean_reciprocal_rank(rs_ranked)
     
     return results
 
@@ -141,7 +150,7 @@ def w2v_embed(X, embedding, **params):
         docs_data = []
         for i, doc in enumerate(X):
             n_words = len(doc)
-            weighted_sum = np.zeros((vec_size,))
+            weighted_sum = np.zeros((50,))
             for w in doc:
                 if w in embedding.wv:  # skip, if OOV
                     word_idx = sorted_vocab.index(w)
