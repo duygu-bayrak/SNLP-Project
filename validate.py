@@ -20,6 +20,9 @@ def validate(**params):
     true_results = params.get("retrieval_fnt")(**params.get("retrieval_args"))
     embedding = params.pop("embedding", None)
 
+    # Remove gaps in indexing
+    docs, queries, true_results = reindex_data(docs, queries, true_results)
+
     # Split train, val queries:
     qids_train, qids_test = train_test_split(list(true_results.keys()), test_size=params.get("test_size"))
 

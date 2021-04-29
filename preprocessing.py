@@ -182,3 +182,44 @@ def read_cisi_relevancy(path):
     
     return dict(query_results)
 
+
+def reindex_data(docs, queries, results):
+    """ Removes gaps and reindexes documents and queries.
+    
+        >>> reindex_data(["ab", "ac", "", "bb", "hh"],
+        >>>              ["t", "", "", "", "n", "l"],
+        >>>              {0: [1, 3], 4: [0,4], 5: [2,4]})
+        (['ab', 'ac', 'bb', 'hh'],
+         ['t', 'n', 'l'],
+         {0: [1, 2], 1: [0, 3], 2: [1, 3]})
+    """
+    # Reindex documents
+    i = 0
+    n_docs = len(docs)
+    while i < n_docs:  # Python is missing C hacks like for(;;i++);
+        if docs[i] == "":
+            docs = remove_at(i, docs)
+            results = {k: [x-1 if x >= i else x for x in v] for k, v in results.items()}
+            i -= 1
+            n_docs = len(docs)
+        i += 1
+            
+    # Reindex queries
+    i = 0
+    n_queries = len(queries)
+    while i < n_queries:
+        if queries[i] == "":
+            queries = remove_at(i, queries)
+            results = {(k-1 if k >= i else k): v for k, v in results.items()}
+            i -= 1
+            n_queries = len(queries)
+        i += 1
+
+    return docs, queries, results
+
+
+def remove_at(i, arr):
+    for j in range(i, len(arr) - 1):
+        arr[j] = arr[j+1]
+    arr = arr[:-1]
+    return arr
