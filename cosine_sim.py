@@ -17,9 +17,10 @@ def cosine_sim(x, y):
         cosine similarity between vector x and y
     """
     
-    cos_sim = np.dot(x, y)/(np.linalg.norm(x)*np.linalg.norm(y))
-    
-    return cos_sim
+    norms = np.linalg.norm(x) * np.linalg.norm(y)
+    if norms == 0:
+        return float('-inf')
+    return np.dot(x, y) / norms
 
 
 def get_k_relevant(k, query, D):

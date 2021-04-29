@@ -2,6 +2,14 @@ import copy
 from collections import Counter
 import pandas as pd
 
+from nltk.corpus import wordnet
+
+
+def synonym_enrich(model):
+    [vocabulary, mapping] = synonym_mapping(model)
+    return synonym_enrichment_v1(model, mapping)
+
+
 def synonym_mapping(doc_lemmas):
     """This function computes the synonym mappings of the terms in the vocabulary.
 
@@ -113,5 +121,3 @@ def synonym_enrichment_v3(doc_lemmas,mapping):
             doc_en +=NewTokens[term] 
         doc_enrich.append(doc_en)
     return doc_enrich
-
-

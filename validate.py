@@ -9,6 +9,7 @@ from preprocessing import *
 from synonym_enrich import *
 from cosine_sim import *
 
+from nltk.corpus import wordnet
 
 def validate(**params):
     # Set random seed to make experiments reproducible
@@ -44,11 +45,14 @@ def validate(**params):
     rs_ranked = []
     rs_unranked = []
     n_relevant = []
+    similarity_threshold = params.get("similarity_threshold")
     k = params.get("k")
     for qid in qids_test:
         q, _ = embed([qid], queries, embedding, **query_params)
         q = q[:,0]
-        q_retrived = [x[1] for x in get_k_relevant(0, q, docs_data)]
+        q_retrived = get_k_relevant(0, q, docs_data)
+        q_retrived = list(filter(lambda x: x[0] is not None and x[0] > similarity_threshold, q_retrived))
+        q_retrived = [x[1] for x in q_retrived]
         q_relevant = true_results[qid]
         rs_unranked.append([int(x in q_relevant) for x in q_retrived])
         rs_ranked.append([int(x in q_relevant) for x in q_retrived[:k]])
@@ -148,15 +152,38 @@ def w2v_embed(X, embedding, **params):
         tf_matrix = params.get("tf_matrix")
         sorted_vocab = params.get("sorted_vocab")
         docs_data = []
+        
+        def getSynonyms(term): #uses wordNet to get the synonym of every term
+            syns =[]
+            for synset in wordnet.synsets(term):
+                for lemma in synset.lemmas():
+                    syns.append(lemma.name())
+            return list(set(syns +[term]))
+        
         for i, doc in enumerate(X):
             n_words = len(doc)
             weighted_sum = np.zeros((50,))
             for w in doc:
                 if w in embedding.wv:  # skip, if OOV
-                    word_idx = sorted_vocab.index(w)
-                    weight = tf_matrix[word_idx][i]
-                    weighted_sum += weight * embedding.wv[w]
-    
+                    if w in sorted_vocab:
+                        word_idx = sorted_vocab.index(w)
+                        weight = tf_matrix[word_idx][i]
+                        weighted_sum += weight * embedding.wv[w]
+                    else:
+                        #replace word by its synonym and get the average
+                        synonyms = getSynonyms(w)
+                        weighted_sum_syn = np.zeros((50,))
+                        cnt=0
+                        for syn in synonyms:
+                            if syn in embedding.wv:  # skip, if OOV
+                                if syn in sorted_vocab:
+                                    cnt+=1
+                                    word_idx = sorted_vocab.index(syn)
+                                    weight = tf_matrix[word_idx][i]
+                                    weighted_sum_syn += weight * embedding.wv[syn]
+                        if cnt!=0: 
+                            avg_syn = weighted_sum_syn/cnt
+                            weighted_sum += avg_syn
             avg = weighted_sum/n_words
             docs_data.append(avg)
     # Pure word2vec:        
