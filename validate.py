@@ -18,9 +18,10 @@ def validate(**params):
     docs = params.get("data_parse_fnt")(*params.get("doc_args"))
     queries = params.get("data_parse_fnt")(*params.get("query_args"))
     true_results = params.get("retrieval_fnt")(**params.get("retrieval_args"))
+    embedding = params.pop("embedding", None)
 
     # Split train, val queries:
-    qids_train, qids_test = train_test_split(list(range(1, len(queries))), test_size=params.get("test_size"))
+    qids_train, qids_test = train_test_split(list(true_results.keys()), test_size=params.get("test_size"))
 
     # Preprocess + make model for documents
     docs = preprocess(docs, params.get("preprocessings"))  # list of list of lemmatized tokens
@@ -28,20 +29,19 @@ def validate(**params):
 
     # Validate
     # Baseline case
-    if "embedding" not in params or params.get("embedding") is None:
-        docs_data, query_params = embed(None, docs, **params)
+    if embedding is None:
+        docs_data, query_params = embed(None, docs, embedding, **params)
         
     # Embedding case
     else:
-        docs_data, query_params = embed(None, docs, **params)
-        query_params["embedding"] = params.get("embedding")
+        docs_data, query_params = embed(None, docs, embedding, **params)
 
     # Calculate scores
     results = {}
     rs = []
     k = params.get("k")
     for qid in qids_test:
-        q, _ = embed([qid], queries, **query_params)
+        q, _ = embed([qid], queries, embedding, **query_params)
         q = q[:,0]
         q_retrived = [x[1] for x in get_k_relevant(k, q, docs_data)]
         q_relevant = true_results[qid]
@@ -64,7 +64,7 @@ def preprocess(docs, preprocessings):
     return docs
 
 
-def embed(qids, X, **params):
+def embed(qids, X, embedding, **params):
     """ Overloaded function!
         Performs embedding for both reference documents and queries.
         ------
@@ -79,7 +79,7 @@ def embed(qids, X, **params):
                 m is the vector embedding size
                 n is number of documents to be retrieved
             additional_data: dict
-                Dictionary with additional data from reference documents first case.
+                Dictionary with additional data from reference documents.
     """
 
     # (A) Documents first case
@@ -87,8 +87,12 @@ def embed(qids, X, **params):
         additional_data = {}
         
         # Embedding case
-        if "embedding" in params and params.get("embedding") is not None:
-            X = w2v_embed(X, params.get("embedding"))
+        if embedding is not None:
+            if params.get("use_position_vector"):
+                tf_matrix, sorted_vocab = create_term_doc_matrix(X)
+                additional_data["tf_matrix"] = tf_matrix
+                additional_data["sorted_vocab"] = sorted_vocab
+            X = w2v_embed(X, embedding, **additional_data)
         # Baseline case
         else:
             X, sorted_vocab = create_term_doc_matrix(X)
@@ -107,12 +111,12 @@ def embed(qids, X, **params):
     # (B) Queries other cases
     X = [X[i] for i in qids]
 
-    # Baseline case (only queries)
-    if "sorted_vocab" in params:
-        X = create_term_doc_matrix_queries(X, params.get("sorted_vocab"))
-    # Embedding case (any documents)    
+    # Embedding case   
+    if embedding is not None:
+        X = w2v_embed(X, embedding, **params)
+    # Baseline case
     else:
-        X = w2v_embed(X, params.get("embedding"))
+        X = create_term_doc_matrix_queries(X, params.get("sorted_vocab"))
 
     # Apply optional math processing
     if "idf_vector" in params:
@@ -123,10 +127,14 @@ def embed(qids, X, **params):
     return X, {}
 
 
-def w2v_embed(X, embedding, tf_matrix, sorted_vocab):
+def w2v_embed(X, embedding, **params):
+    # Doc2Vec:
     if "infer_vector" in dir(embedding):
         docs_data = [embedding.infer_vector(doc) for doc in X]
-    else: #Vanilla Position Vector
+    # Vanilla Position Vector:
+    elif "tf_matrix" in params and "sorted_vocab" in params:
+        tf_matrix = params.get("tf_matrix")
+        sorted_vocab = params.get("sorted_vocab")
         docs_data = []
         for i, doc in enumerate(X):
             n_words = len(doc)
@@ -136,10 +144,19 @@ def w2v_embed(X, embedding, tf_matrix, sorted_vocab):
                     word_idx = sorted_vocab.index(w)
                     weight = tf_matrix[word_idx][i]
                     weighted_sum += weight * embedding.wv[w]
-                   
+    
             avg = weighted_sum/n_words
             docs_data.append(avg)
-    return np.array(docs_data).T
+    # Pure word2vec:        
+    else:
+        docs_data = []
+        for doc in X:
+            vecs = []
+            for w in doc:
+                if w in embedding.wv:  # skip, if OOV 
+                    vecs.append(embedding.wv[w])
+            docs_data.append(np.mean(np.array(vecs), axis=0))
+    return np.vstack(docs_data).T
 
 
 # Retrieval Metrics,

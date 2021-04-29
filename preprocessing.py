@@ -16,26 +16,40 @@ stop_list = stopwords.words('english')
 
 
 def parseDocs(filename): 
-    with open(filename,"r") as f:
-        docs = []
-        doc = ""
-        cont = False
-    
-        for line in f: #skip text between .I and .W
-            if ".I" in line:
+    with open(filename) as f:
+        content = f.read()
+
+    indexes = re.findall(r"\.I [0-9][0-9]*", content)
+    indexes = [re.sub('\D', '', x).lstrip("0") for x in indexes]
+    indexes = [int(x) for x in indexes]
+    n_indexes = max(indexes)
+
+    docs = ["" for _ in range(n_indexes)] 
+    doc = ""
+    cont = False
+    i = 0
+
+    for line in content.split('\n'): 
+        if ".I" in line[:2]:
+            if cont:
+                docs[i] = doc
+            idx_in_line = re.sub('\D', '', line).lstrip("0")
+            i = int(idx_in_line) - 1
+            cont = False
+            doc = ""
+        elif ".W" in line[:2]: #skip text between .I and .W
+            cont = True
+        elif cont:
+            if re.match(r"\.[A-Z]\s*", line):
                 cont = False
-                if len(doc)>0:
-                    docs.append(doc)
-                    doc = ""
-            elif ".W" in line:
-                cont = True
-            elif cont == True:
-                doc = doc + line
-
-        if len(doc)>0: #needed for the last document
-            docs.append(doc)
-
-        f.close()
+                docs[i] = doc
+            else:
+                if doc != "":
+                    doc += " "
+                doc += line
+            
+    if len(doc)>0: #needed for the last document
+        docs[i] = doc
     
     return docs
 
@@ -134,12 +148,37 @@ def read_cran_relevancy(path, relevancy_threshold=3):
     with open(path) as f:
         for line in f.readlines():
             qid, docid, relevancy = tuple(line.split())
-            qid, docid, relevancy = int(qid), int(docid), int(relevancy)
-            if relevancy <= relevancy_threshold:
+            qid, docid, relevancy = int(qid) - 1, int(docid) - 1, int(relevancy)
+            if relevancy <= relevancy_threshold and relevancy != -1:
                 query_results[qid].append((docid, relevancy))
     
     for k, v in query_results.items():
         query_results[k] = [docid for (docid, relevancy) in sorted(v, key=lambda x: x[1])]
+    
+    return dict(query_results)
+
+
+def read_cisi_relevancy(path):
+    """ Loads query relevancy information from the cisi dataset.
+
+    Parameters
+    ----------
+    path : string
+        path to the cranqrel file containing space-separated columns:
+            query_id relevant_document_id relevant_document_number
+    
+    Returns
+    -------
+    query_results : {qid: list of results sorted by relevancy, then by document id} 
+    """
+
+    query_results = defaultdict(list)
+
+    with open(path) as f:
+        for line in f.readlines():
+            qid, docid, _, _ = tuple(line.split())
+            qid, docid = int(qid) - 1, int(docid) - 1
+            query_results[qid].append(docid)
     
     return dict(query_results)
 
