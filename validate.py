@@ -123,17 +123,22 @@ def embed(qids, X, **params):
     return X, {}
 
 
-def w2v_embed(X, embedding):
+def w2v_embed(X, embedding, tf_matrix, sorted_vocab):
     if "infer_vector" in dir(embedding):
         docs_data = [embedding.infer_vector(doc) for doc in X]
-    else:
+    else: #Vanilla Position Vector
         docs_data = []
-        for doc in X:
-            vecs = []
+        for i, doc in enumerate(X):
+            n_words = len(doc)
+            weighted_sum = np.zeros((vec_size,))
             for w in doc:
                 if w in embedding.wv:  # skip, if OOV
-                    vecs.append(embedding.wv[w])
-            docs_data.append(np.mean(np.array(vecs), axis=0))
+                    word_idx = sorted_vocab.index(w)
+                    weight = tf_matrix[word_idx][i]
+                    weighted_sum += weight * embedding.wv[w]
+                   
+            avg = weighted_sum/n_words
+            docs_data.append(avg)
     return np.array(docs_data).T
 
 
